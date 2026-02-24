@@ -1,0 +1,143 @@
+
+//  Write protocol (drive_write)
+//  ----------------------------
+//   Cycle 0  : assert awvalid+awaddr and wvalid+wdata+wstrb simultaneously.
+//   Cycle N  : both awready and wready seen → deassert awvalid & wvalid.
+//   Cycle N+1: assert bready; wait for bvalid.
+//   Cycle N+2: deassert bready; capture bresp into tr.resp.
+//
+//  Read protocol (drive_read)
+//  --------------------------
+//   Cycle 0  : assert arvalid + araddr.
+//   Cycle N  : arready seen → deassert arvalid.
+//   Cycle N+1: assert rready; wait for rvalid.
+//   Cycle N+2: capture rdata + rresp; deassert rready.
+// =============================================================================
+
+class axi4_lite_driver extends uvm_driver #(axi4_lite_transaction);
+    `uvm_component_utils(axi4_lite_driver)
+
+    virtual axi4_lite_if vif;
+
+    function new(string name = "axi4_lite_driver", uvm_component parent = null);
+        super.new(name, parent);
+    endfunction
+
+    function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+        
+        if (!uvm_config_db #(virtual axi4_lite_if)::get(this, "", "vif", vif))
+            `uvm_fatal("CFG_DB", "Virtual interface 'vif' not found in uvm_config_db")
+    endfunction
+
+    task run_phase(uvm_phase phase);
+        init_signals();
+        wait_for_reset();
+
+        forever begin
+            seq_item_port.get_next_item(req);
+
+            `uvm_info(get_type_name(), $sformatf("Driving: %s", req.convert2string()), UVM_HIGH)
+            case (req.trans_type)
+                WRITE : drive_write(req);
+                READ  : drive_read(req);
+                default: `uvm_error(get_type_name(), $sformatf("Unknown trans_type %0d", req.trans_type))
+            endcase
+
+            seq_item_port.item_done();
+        end
+    endtask
+
+    task init_signals();
+        vif.awaddr  <= '0;
+        vif.awvalid <= 1'b0;
+        vif.wdata   <= '0;
+        vif.wstrb   <= 4'b0000;
+        vif.wvalid  <= 1'b0;
+        vif.bready  <= 1'b0;
+        vif.araddr  <= '0;
+        vif.arvalid <= 1'b0;
+        vif.rready  <= 1'b0;
+    endtask
+
+    task wait_for_reset();
+        if (!vif.rst_n) begin
+            `uvm_info(get_type_name(), "Waiting for reset de-assertion ...", UVM_MEDIUM)
+            @(posedge vif.rst_n);
+            @(posedge vif.clk); // wait one extra cycle
+            `uvm_info(get_type_name(), "Reset de-asserted – driver active", UVM_MEDIUM)
+        end
+    endtask
+
+    task drive_write(axi4_lite_transaction tr);
+        
+        @(vif.master_cb);
+        
+        // ── Step 1: Send
+        vif.master_cb.awaddr  <= tr.addr;
+        vif.master_cb.awvalid <= 1'b1;
+        vif.master_cb.wdata   <= tr.wdata;
+        vif.master_cb.wstrb   <= tr.wstrb;
+        vif.master_cb.wvalid  <= 1'b1;
+
+        // ── Step 2: Wait
+        begin
+            bit aw_done = 0; // wait for both to be completed
+            bit w_done  = 0;
+
+            while (!aw_done || !w_done) begin
+                // check handshakes and de-assert accordingly
+                if (!aw_done && vif.master_cb.awready) begin
+                    vif.master_cb.awvalid <= 1'b0;
+                    aw_done = 1;
+                end
+                if (!w_done && vif.master_cb.wready) begin
+                    vif.master_cb.wvalid <= 1'b0;
+                    w_done = 1;
+                end
+            end
+        end
+
+        // ── Step 3: Response
+        @(vif.master_cb);
+        vif.master_cb.bready <= 1'b1;
+
+        while (!vif.master_cb.bvalid)
+            @(vif.master_cb);
+
+        tr.resp = vif.master_cb.bresp; // response status from DUT
+
+        @(vif.master_cb);
+        vif.master_cb.bready <= 1'b0; // de-assert bready
+
+        `uvm_info(get_type_name(), $sformatf("Write done: addr=0x%08h data=0x%08h strb=4'b%04b resp=2'b%02b", tr.addr, tr.wdata, tr.wstrb, tr.resp), UVM_HIGH)
+    endtask
+
+    task drive_read(axi4_lite_transaction tr);
+        // ── Step 1: Send
+        vif.master_cb.araddr  <= tr.addr;
+        vif.master_cb.arvalid <= 1'b1;
+
+        // ── Step 2: Wait for handshake, de-assert arvalid
+        while (!vif.master_cb.arready)
+            @(vif.master_cb);
+
+        @(vif.master_cb);
+        vif.master_cb.arvalid <= 1'b0;
+
+        // ── Step 3: Assert rready, wait for rvalid and capture rdata + rresp
+        vif.master_cb.rready <= 1'b1;
+
+        while (!vif.master_cb.rvalid)
+            @(vif.master_cb);
+
+        tr.rdata = vif.master_cb.rdata;
+        tr.resp  = vif.master_cb.rresp;
+
+        // ── Step 4: De-assert
+        @(vif.master_cb);
+        vif.master_cb.rready <= 1'b0;
+
+        `uvm_info(get_type_name(), $sformatf("Read  done: addr=0x%08h rdata=0x%08h resp=2'b%02b", tr.addr, tr.rdata, tr.resp), UVM_HIGH)
+    endtask
+endclass
