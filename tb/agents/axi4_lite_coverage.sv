@@ -195,7 +195,7 @@ class axi4_lite_coverage extends uvm_subscriber #(axi4_lite_transaction);
         `uvm_info(get_type_name(),
             $sformatf("║  resp_cp             %3d   %3d   %6.2f%%\n\
 ║    [0] OKAY   (2'b00): %0d hits\n\
-║    [1] SLVERR (2'b10): %0d hits",
+║    [1] SLVERR (2'b01): %0d hits",
                 RESP_BINS, count_hits(resp_hits), cp_resp,
                 resp_hits[0], resp_hits[1]), UVM_NONE)
 

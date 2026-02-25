@@ -1,7 +1,6 @@
 # AXI4-Lite UVM Verification Project
 
-A complete UVM-1.2 verification environment for an AXI4-Lite slave DUT,
-targeting VCS for full-featured simulation and Verilator for 2-state lint/sim.
+A complete UVM verification environment for an AXI4-Lite slave DUT.
 
 ---
 
@@ -10,33 +9,33 @@ targeting VCS for full-featured simulation and Verilator for 2-state lint/sim.
 ```
 uvm_axi4_lite/
 ├── rtl/
-│   └── axi4_lite_slave.sv          DUT – 16×32-bit register slave
+│   └── axi4_lite_slave.sv            DUT – 16×32-bit register slave
 │
 ├── tb/
 │   ├── interfaces/
-│   │   └── axi4_lite_if.sv         SV interface + master_cb + monitor_cb
+│   │   └── axi4_lite_if.sv
 │   │
 │   ├── sequences/
-│   │   ├── axi4_lite_transaction.sv  UVM sequence item (rand addr/data/strb)
-│   │   └── axi4_lite_sequences.sv    base_seq / random_seq / wr_rd_seq
+│   │   ├── axi4_lite_transaction.sv
+│   │   └── axi4_lite_sequences.sv
 │   │
 │   ├── agents/
-│   │   ├── axi4_lite_driver.sv       UVM driver  (master clocking block)
-│   │   ├── axi4_lite_monitor.sv      UVM monitor (monitor clocking block)
-│   │   ├── axi4_lite_scoreboard.sv   Reference model + checker
-│   │   ├── axi4_lite_coverage.sv     Functional coverage (int arrays)
-│   │   └── axi4_lite_agent.sv        Agent + sequencer
+│   │   ├── axi4_lite_driver.sv
+│   │   ├── axi4_lite_monitor.sv
+│   │   ├── axi4_lite_scoreboard.sv
+│   │   ├── axi4_lite_coverage.sv
+│   │   └── axi4_lite_agent.sv
 │   │
 │   ├── tests/
-│   │   └── axi4_lite_test.sv         base_test / random_test / wr_rd_test
+│   │   └── axi4_lite_test.sv
 │   │
-│   ├── axi4_lite_pkg.sv              Central package (all `include chains)
-│   ├── axi4_lite_env.sv              UVM environment (agent+scoreboard+coverage)
-│   ├── axi4_lite_assertions.sv       SVA protocol checker module
-│   └── axi4_lite_tb_top.sv           Top-level TB (clk/rst, DUT, UVM kickoff)
+│   ├── axi4_lite_pkg.sv
+│   ├── axi4_lite_env.sv
+│   ├── axi4_lite_assertions.sv
+│   └── axi4_lite_tb_top.sv
 │
 └── sim/
-    └── Makefile                      VCS compile + run + coverage targets
+    └── Makefile
 ```
 
 ---
@@ -50,7 +49,7 @@ uvm_axi4_lite/
 | ...         | ...      | ...         |
 | 0x3C        | REG15    | 0x00000000  |
 
-- Addresses outside `0x00–0x3C` or unaligned → **SLVERR** (`2'b10`)
+- Addresses outside `0x00–0x3C` or unaligned → **SLVERR** (`2'b01`)
 - `wstrb` byte-lane masking is fully supported
 
 ---
@@ -59,23 +58,22 @@ uvm_axi4_lite/
 
 ```
 axi4_lite_tb_top
- └── uvm_root
-      └── axi4_lite_random_test / axi4_lite_wr_rd_test
-           └── axi4_lite_env
-                ├── axi4_lite_agent  (UVM_ACTIVE)
-                │    ├── axi4_lite_sequencer
-                │    ├── axi4_lite_driver   ──drives──► DUT via master_cb
-                │    └── axi4_lite_monitor  ──observes─► DUT via monitor_cb
-                │         └── ap (analysis_port)
-                │              ├──────────────────► axi4_lite_scoreboard.analysis_imp
-                │              └──────────────────► axi4_lite_coverage.analysis_export
-                ├── axi4_lite_scoreboard
-                └── axi4_lite_coverage
+└── axi4_lite_random_test / axi4_lite_wr_rd_test
+     └── axi4_lite_env
+          ├── axi4_lite_agent  (UVM_ACTIVE)
+          │    ├── axi4_lite_sequencer
+          │    ├── axi4_lite_driver
+          │    └── axi4_lite_monitor
+          │         └── ap (analysis_port)
+          │              ├──────────────────► axi4_lite_scoreboard.analysis_imp
+          │              └──────────────────► axi4_lite_coverage.analysis_export
+          ├── axi4_lite_scoreboard
+          └── axi4_lite_coverage
 ```
 
 ---
 
-## How to Run (VCS)
+## How to Run (Makefile only suppors Verilator for now)
 
 ```bash
 cd sim/
@@ -106,7 +104,7 @@ Test selection via `+UVM_TESTNAME`:
 
 ## Coverage Report Format
 
-The functional coverage collector (`axi4_lite_coverage`) reports at end-of-sim:
+The functional coverage collector (`axi4_lite_coverage`) reports is as following. Notice that Verilator is a 2-state simulator and does not support covergroup as VCS. 
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
@@ -130,10 +128,6 @@ The functional coverage collector (`axi4_lite_coverage`) reports at end-of-sim:
 ╚══════════════════════════════════════════════════════════════╝
 ```
 
-> **Note:** Verilator does not support SystemVerilog `covergroup`. Coverage is
-> implemented using plain `int` arrays incremented in the `write()` function,
-> which is 2-state compatible and fully portable.
-
 ---
 
 ## SVA Assertions (`axi4_lite_assertions.sv`)
@@ -151,30 +145,9 @@ The functional coverage collector (`axi4_lite_coverage`) reports at end-of-sim:
 | `VALID_RRESP`     | rresp ∈ {OKAY, SLVERR} when rvalid |
 | `NO_X_ON_*`       | No X/Z on any control signal when valid asserted |
 
-All assertions use `disable iff (!rst_n)` to suppress spurious failures during reset.
-
 ---
 
-## AXI4-Lite Protocol Overview
+## AXI4-Lite Protocol Note
 
-AXI4-Lite uses five independent channels, each with a valid/ready handshake.
-A transaction completes when both `valid` and `ready` are simultaneously high.
-
-```
-WRITE transaction             READ transaction
-─────────────────             ────────────────
-Master → Slave: AW channel    Master → Slave: AR channel
-Master → Slave: W  channel    Slave  → Master: R  channel
-Slave  → Master: B  channel
-```
-
-**Handshake rule:** Once `valid` is asserted it must not be de-asserted until
-`ready` is seen (AXI4 spec §A3.2.1). This is checked by the SVA module.
-
-**Ready signals in this DUT:**
-- `awready`, `wready` — combinational (`!aw_done`, `!w_done`)
-- `arready`           — combinational (`!rvalid`)
-
-This means handshakes always complete in one cycle under normal conditions,
-giving single-cycle write address/data acceptance and single-cycle read
-address acceptance.
+- **Handshake rule:** Once `valid` is asserted it must not be de-asserted until
+`ready` is seen.

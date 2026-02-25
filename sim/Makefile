@@ -1,149 +1,138 @@
 # =============================================================================
-# Makefile — AXI4-Lite UVM Simulation (VCS)
-# =============================================================================
 # Usage:
-#   make compile        — compile only
-#   make run_random     — compile + run axi4_lite_random_test
-#   make run_wr_rd      — compile + run axi4_lite_wr_rd_test
-#   make coverage       — open DVE and generate coverage report
-#   make clean          — remove all generated artefacts
-#   make all            — compile + run_random (default)
+#   make setup                              — Download UVM 2017-1.0 sources
+#   make build                              — Compile
+#   make run                                — Build and run default test
+#   make run TEST=axi4_lite_wr_rd_test      — Run write-read-back test
+#   make clean                              — Remove build artifacts
+#   make rebuild                            — Clean and rebuild
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# Tool
-# -----------------------------------------------------------------------------
-VCS      := vcs
-DVE      := dve
-VERDI    := verdi
+VERILATOR = verilator
+
+# Root of the repository (resolve relative to this Makefile's location)
+MKFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+REPO_ROOT  := $(abspath $(MKFILE_DIR)/..)
+
+# Paths
+RTL_DIR = $(REPO_ROOT)/rtl
+TB_DIR  = $(REPO_ROOT)/tb
+
+# Top-level testbench module
+TOP_MODULE = axi4_lite_tb_top
+
+# UVM source path (downloaded from Accellera if not present)
+UVM_HOME ?= $(REPO_ROOT)/1800.2-2017-1.0/src
 
 # -----------------------------------------------------------------------------
-# Directory layout (relative to sim/)
+# Verilator flags
 # -----------------------------------------------------------------------------
-ROOT     := ..
-RTL_DIR  := $(ROOT)/rtl
-TB_DIR   := $(ROOT)/tb
-SIM_DIR  := .
+VFLAGS  = --binary
+VFLAGS += --timing
+VFLAGS += --top-module $(TOP_MODULE)
+VFLAGS += -j 0
+VFLAGS += -Wno-fatal
+VFLAGS += --x-assign 0
+VFLAGS += --x-initial 0
+
+# UVM-specific flags (per Antmicro Verilator UVM guide)
+VFLAGS += +incdir+$(UVM_HOME)
+VFLAGS += +define+UVM_NO_DPI
+
+# Project include directories
+VFLAGS += +incdir+$(TB_DIR)
+VFLAGS += +incdir+$(TB_DIR)/interfaces
+VFLAGS += +incdir+$(TB_DIR)/sequences
+VFLAGS += +incdir+$(TB_DIR)/agents
+VFLAGS += +incdir+$(TB_DIR)/tests
+VFLAGS += +incdir+$(MKFILE_DIR)
+
+# Suppress common Verilator warnings
+VFLAGS += -Wno-WIDTHEXPAND
+VFLAGS += -Wno-WIDTHTRUNC
+VFLAGS += -Wno-UNUSEDSIGNAL
+VFLAGS += -Wno-UNOPTFLAT
+VFLAGS += -Wno-BLKSEQ
+VFLAGS += -Wno-CASEINCOMPLETE
+VFLAGS += -Wno-LATCH
+VFLAGS += -Wno-INITIALDLY
+VFLAGS += -Wno-MULTIDRIVEN
 
 # -----------------------------------------------------------------------------
-# UVM
+# Source files — strict compilation order:
+#   1. UVM package (foundation)
+#   2. Interface (referenced by pkg and tb_top)
+#   3. Project package (pulls in all TB classes via `include)
+#   4. DUT
+#   5. Assertion module
+#   6. Testbench top
 # -----------------------------------------------------------------------------
-UVM_HOME ?= $(VCS_HOME)/etc/uvm-1.2
-UVM_OPTS  := -ntb_opts uvm-1.2
-
-# -----------------------------------------------------------------------------
-# Compilation flags
-# -----------------------------------------------------------------------------
-VCS_FLAGS := \
-    -sverilog                          \
-    $(UVM_OPTS)                        \
-    -timescale=1ns/1ps                 \
-    -debug_access+all                  \
-    -cm line+cond+fsm+tgl+branch       \
-    -cm_dir $(SIM_DIR)/coverage.vdb    \
-    -assert svaext                     \
-    -full64                            \
-    -l $(SIM_DIR)/compile.log
-
-# Include paths
-VCS_INCDIRS := \
-    +incdir+$(TB_DIR)                  \
-    +incdir+$(TB_DIR)/sequences        \
-    +incdir+$(TB_DIR)/agents           \
-    +incdir+$(TB_DIR)/tests            \
-    +incdir+$(TB_DIR)/interfaces       \
-    +incdir+$(UVM_HOME)/src
-
-# -----------------------------------------------------------------------------
-# Source file list  (strict compilation order)
-# -----------------------------------------------------------------------------
-# 1. UVM package is pulled in automatically via -ntb_opts uvm-1.2
-# 2. Project package (includes all TB classes via `include)
-# 3. Interface (must be compiled before tb_top)
-# 4. DUT
-# 5. Assertions
-# 6. TB top
-
-SRC_FILES := \
-    $(TB_DIR)/axi4_lite_pkg.sv         \
-    $(TB_DIR)/interfaces/axi4_lite_if.sv \
-    $(RTL_DIR)/axi4_lite_slave.sv      \
-    $(TB_DIR)/axi4_lite_assertions.sv  \
-    $(TB_DIR)/axi4_lite_env.sv         \
-    $(TB_DIR)/tests/axi4_lite_test.sv  \
+SRC = \
+    $(UVM_HOME)/uvm_pkg.sv                   \
+    $(TB_DIR)/interfaces/axi4_lite_if.sv     \
+    $(TB_DIR)/axi4_lite_pkg.sv               \
+    $(RTL_DIR)/axi4_lite_slave.sv            \
+    $(TB_DIR)/axi4_lite_assertions.sv        \
     $(TB_DIR)/axi4_lite_tb_top.sv
 
-# Top-level module
-TOP := axi4_lite_tb_top
+# Output directory and binary
+OBJ_DIR = obj_dir
+BINARY  = $(OBJ_DIR)/V$(TOP_MODULE)
 
-# Simulation binary
-SIMV := $(SIM_DIR)/simv
+# Default test name (override with: make run TEST=axi4_lite_wr_rd_test)
+TEST ?= axi4_lite_random_test
 
-# -----------------------------------------------------------------------------
-# Simulation run flags
-# -----------------------------------------------------------------------------
-SIM_FLAGS := \
-    -cm line+cond+fsm+tgl+branch       \
-    -cm_dir $(SIM_DIR)/coverage.vdb    \
-    +UVM_VERBOSITY=UVM_MEDIUM          \
-    +ntb_random_seed_automatic
+# UVM download URL
+UVM_TARBALL_URL = https://www.accellera.org/images/downloads/standards/uvm/Accellera-1800.2-2017-1.0.tar.gz
+UVM_PKG_SV      = $(UVM_HOME)/uvm_pkg.sv
 
 # -----------------------------------------------------------------------------
 # Targets
 # -----------------------------------------------------------------------------
-.PHONY: all compile run_random run_wr_rd coverage clean
+.PHONY: all build run clean rebuild help setup
 
-all: compile run_random
+all: run
 
-# ── Compile ──────────────────────────────────────────────────────────────────
-compile: $(SIMV)
+build: $(BINARY)
 
-$(SIMV): $(SRC_FILES)
-	@echo "============================================================"
-	@echo " Compiling AXI4-Lite UVM testbench"
-	@echo "============================================================"
-	$(VCS) $(VCS_FLAGS) $(VCS_INCDIRS) \
-	    -top $(TOP)                    \
-	    $(SRC_FILES)                   \
-	    -o $(SIMV)
-	@echo "[compile] Done — binary: $(SIMV)"
+# Download UVM sources if not present
+setup: $(UVM_PKG_SV)
 
-# ── Run: random test ─────────────────────────────────────────────────────────
-run_random: compile
-	@echo "============================================================"
-	@echo " Running: axi4_lite_random_test"
-	@echo "============================================================"
-	$(SIMV) $(SIM_FLAGS)                       \
-	    +UVM_TESTNAME=axi4_lite_random_test    \
-	    -l $(SIM_DIR)/run_random.log
-	@echo "[run_random] Log: $(SIM_DIR)/run_random.log"
+$(UVM_PKG_SV):
+	@echo "=== Downloading UVM 2017-1.0 sources ==="
+	curl -sL $(UVM_TARBALL_URL) -o /tmp/uvm-2017.tar.gz
+	tar -xzf /tmp/uvm-2017.tar.gz -C $(REPO_ROOT)
+	rm -f /tmp/uvm-2017.tar.gz
+	@echo "=== UVM sources installed to $(REPO_ROOT)/1800.2-2017-1.0 ==="
 
-# ── Run: write-read-back test ─────────────────────────────────────────────────
-run_wr_rd: compile
-	@echo "============================================================"
-	@echo " Running: axi4_lite_wr_rd_test"
-	@echo "============================================================"
-	$(SIMV) $(SIM_FLAGS)                       \
-	    +UVM_TESTNAME=axi4_lite_wr_rd_test     \
-	    -l $(SIM_DIR)/run_wr_rd.log
-	@echo "[run_wr_rd] Log: $(SIM_DIR)/run_wr_rd.log"
+$(BINARY): $(UVM_PKG_SV) $(wildcard $(RTL_DIR)/*.sv) $(wildcard $(TB_DIR)/*.sv) \
+           $(wildcard $(TB_DIR)/interfaces/*.sv) $(wildcard $(TB_DIR)/agents/*.sv) \
+           $(wildcard $(TB_DIR)/sequences/*.sv)  $(wildcard $(TB_DIR)/tests/*.sv)
+	@echo "=== Building AXI4-Lite UVM testbench with Verilator ==="
+	@echo "UVM_HOME  = $(UVM_HOME)"
+	@echo "REPO_ROOT = $(REPO_ROOT)"
+	$(VERILATOR) $(VFLAGS) $(SRC)
+	@echo "=== Build complete: $(BINARY) ==="
 
-# ── Coverage report ───────────────────────────────────────────────────────────
-coverage:
-	@echo "============================================================"
-	@echo " Generating coverage report"
-	@echo "============================================================"
-	urg -dir $(SIM_DIR)/coverage.vdb  \
-	    -report $(SIM_DIR)/cov_report \
-	    -format both
-	@echo "[coverage] HTML report: $(SIM_DIR)/cov_report/dashboard.html"
+run: $(BINARY)
+	@echo "=== Running UVM Test: $(TEST) ==="
+	$(BINARY) +UVM_TESTNAME=$(TEST)
+	@echo "=== Simulation Complete ==="
 
-# ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
-	@echo "[clean] Removing generated files ..."
-	rm -rf $(SIMV) $(SIMV).daidir
-	rm -rf csrc
-	rm -rf *.log ucli.key
-	rm -rf $(SIM_DIR)/coverage.vdb $(SIM_DIR)/cov_report
-	rm -rf DVEfiles novas.* verdiLog
-	@echo "[clean] Done"
+	@echo "=== Cleaning build artifacts ==="
+	rm -rf $(OBJ_DIR)
+	@echo "=== Clean done ==="
+
+rebuild: clean all
+
+help:
+	@echo "Usage:"
+	@echo "  make setup                                   - Download UVM 2017-1.0 sources (run once)"
+	@echo "  make build                                   - Compile (auto-downloads UVM if needed)"
+	@echo "  make run                                     - Build and run default test (axi4_lite_random_test)"
+	@echo "  make run TEST=axi4_lite_random_test          - Run 20 random read/write transactions"
+	@echo "  make run TEST=axi4_lite_wr_rd_test           - Run 10 write-read-back pairs"
+	@echo "  make run TEST=axi4_lite_base_test            - Run base test"
+	@echo "  make clean                                   - Remove build artifacts"
+	@echo "  make rebuild                                 - Clean and rebuild"

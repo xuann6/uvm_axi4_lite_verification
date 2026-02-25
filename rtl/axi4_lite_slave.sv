@@ -38,7 +38,7 @@ module axi4_lite_slave #(
     localparam int unsigned REG_BYTES = NUM_REGS * 4;   // 64 bytes → 0x00..0x3C
 
     localparam logic [1:0] RESP_OKAY   = 2'b00;
-    localparam logic [1:0] RESP_SLVERR = 2'b10;
+    localparam logic [1:0] RESP_SLVERR = 2'b01;
 
     // Register File
     logic [DATA_WIDTH-1:0] reg_file [0:NUM_REGS-1];
