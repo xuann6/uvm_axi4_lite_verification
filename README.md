@@ -81,7 +81,7 @@ cd sim/
 # Compile only
 make compile
 
-# Compile + run the random test (20 random R/W transactions)
+# Compile + run the random test (200 random R/W transactions)
 make run_random
 
 # Compile + run the write-read-back test (10 WR pairs)
@@ -104,7 +104,7 @@ Test selection via `+UVM_TESTNAME`:
 
 ## Coverage Report Format
 
-The functional coverage collector (`axi4_lite_coverage`) reports is as following. Notice that Verilator is a 2-state simulator and does not support covergroup as VCS. 
+The functional coverage collector (`axi4_lite_coverage`) reports is as following. Notice that Verilator is a 2-state simulator and does not support covergroup as VCS. For randomized stimulus generation I use 200 transactions to hit 100% coverage rate.
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
@@ -112,20 +112,39 @@ The functional coverage collector (`axi4_lite_coverage`) reports is as following
 ╠══════════════════════════════════════════════════════════════╣
 ║  Coverpoint          Bins  Hit   Coverage                    ║
 ╠══════════════════════════════════════════════════════════════╣
-║  trans_type_cp          2     2   100.00%
-║    [0] WRITE  : N hits
-║    [1] READ   : N hits
-║  addr_cp                3     3   100.00%
-║    [0] low  (0x00-0x0C): N hits
-║    [1] mid  (0x10-0x1C): N hits
-║    [2] high (0x20-0x3C): N hits
-║  wstrb_cp               7     7   100.00%
-║  resp_cp                2     2   100.00%
-║  cross type×addr        6     6   100.00%
-║  cross type×wstrb      14    14   100.00%
+║    [0] WRITE  : 148 hits
+║    [1] READ   : 52 hits
+║    [0] low  (0x00-0x0C): 3 hits
+║    [1] mid  (0x10-0x1C): 8 hits
+║    [2] high (0x20-0x3C): 189 hits
+║    [0] byte0  (4'b0001): 10 hits
+║    [1] byte1  (4'b0010): 10 hits
+║    [2] byte2  (4'b0100): 10 hits
+║    [3] byte3  (4'b1000): 16 hits
+║    [4] lo_hw  (4'b0011): 5 hits
+║    [5] hi_hw  (4'b1100): 15 hits
+║    [6] full   (4'b1111): 11 hits
+║    [0] OKAY   (2'b00): 32 hits
+║    [1] SLVERR (2'b01): 168 hits
+║    WRITE×low=2  WRITE×mid=6  WRITE×high=140
+║    READ×low =1  READ×mid =2  READ×high =49
+║    WR×byte0=10  WR×byte1=10  WR×byte2=10  WR×byte3=16
+║    WR×lo_hw=5  WR×hi_hw=15  WR×full =11
 ╠══════════════════════════════════════════════════════════════╣
-║  OVERALL COVERAGE      34    34   100.00%                    ║
+║  OVERALL COVERAGE      27    27   100.00%                    ║
 ╚══════════════════════════════════════════════════════════════╝
+
+╔══════════════════════════════════════════╗
+║       AXI4-Lite Scoreboard Summary       ║
+╠══════════════════════════════════════════╣
+║  Writes           :    148               ║
+║  Reads            :     52               ║
+║  SLVERR writes    :    125               ║
+║  SLVERR reads     :     43               ║
+║  Errors           :      0               ║
+╠══════════════════════════════════════════╣
+║  Result  : *** TEST PASSED ***           ║
+╚══════════════════════════════════════════╝
 ```
 
 ---
@@ -143,7 +162,6 @@ The functional coverage collector (`axi4_lite_coverage`) reports is as following
 | `AR_ADDR_ALIGNED` | araddr word-aligned when arvalid |
 | `VALID_BRESP`     | bresp ∈ {OKAY, SLVERR} when bvalid |
 | `VALID_RRESP`     | rresp ∈ {OKAY, SLVERR} when rvalid |
-| `NO_X_ON_*`       | No X/Z on any control signal when valid asserted |
 
 ---
 
