@@ -40,8 +40,8 @@ class axi4_lite_coverage extends uvm_subscriber #(axi4_lite_transaction);
     localparam int CROSS_TYPE_ADDR_BINS = TRANS_BINS * ADDR_BINS;
     int unsigned cross_type_addr_hits [CROSS_TYPE_ADDR_BINS];
 
-    // ── Cross: trans_type × wstrb ─────────────────────────────────────────────
-    localparam int CROSS_TYPE_STRB_BINS = TRANS_BINS * STRB_BINS;
+    // ── Cross: WRITE × wstrb ──────────────────────────────────────────────────
+    localparam int CROSS_TYPE_STRB_BINS = STRB_BINS;
     int unsigned cross_type_strb_hits [CROSS_TYPE_STRB_BINS];
 
     // Total
@@ -113,9 +113,9 @@ class axi4_lite_coverage extends uvm_subscriber #(axi4_lite_transaction);
         // Bin index = type_idx * ADDR_BINS + addr_idx
         cross_type_addr_hits[type_idx * ADDR_BINS + addr_idx]++;
 
-        // ── 6. Cross: trans_type × wstrb (writes only) 
+        // ── 6. Cross: WRITE × wstrb (writes only — reads have no wstrb)
         if (t.trans_type == WRITE && strb_idx >= 0)
-            cross_type_strb_hits[type_idx * STRB_BINS + strb_idx]++;
+            cross_type_strb_hits[strb_idx]++;  // index directly; no type_idx needed
 
     endfunction
 
@@ -208,14 +208,20 @@ class axi4_lite_coverage extends uvm_subscriber #(axi4_lite_transaction);
                 cross_type_addr_hits[0], cross_type_addr_hits[1], cross_type_addr_hits[2],
                 cross_type_addr_hits[3], cross_type_addr_hits[4], cross_type_addr_hits[5]), UVM_NONE)
 
-        // Cross: type × wstrb
+        // Cross: WRITE × wstrb
         `uvm_info(get_type_name(),
-            $sformatf("║  cross type×wstrb    %3d   %3d   %6.2f%%",
-                CROSS_TYPE_STRB_BINS, count_hits(cross_type_strb_hits), cx_type_strb), UVM_NONE)
+            $sformatf("║  cross WRITE×wstrb   %3d   %3d   %6.2f%%\n\
+║    WR×byte0=%0d  WR×byte1=%0d  WR×byte2=%0d  WR×byte3=%0d\n\
+║    WR×lo_hw=%0d  WR×hi_hw=%0d  WR×full =%0d",
+                CROSS_TYPE_STRB_BINS, count_hits(cross_type_strb_hits), cx_type_strb,
+                cross_type_strb_hits[0], cross_type_strb_hits[1],
+                cross_type_strb_hits[2], cross_type_strb_hits[3],
+                cross_type_strb_hits[4], cross_type_strb_hits[5],
+                cross_type_strb_hits[6]), UVM_NONE)
 
         // Overall
         `uvm_info(get_type_name(),
-            $sformatf("
+            $sformatf("\n\
 ╠══════════════════════════════════════════════════════════════╣\n\
 ║  OVERALL COVERAGE     %3d   %3d   %6.2f%%                    ║\n\
 ╚══════════════════════════════════════════════════════════════╝",

@@ -12,11 +12,11 @@ class axi4_lite_base_seq extends uvm_sequence #(axi4_lite_transaction);
 endclass
 
 
-// 20 fully-random read/write transactions
+// 200 fully-random read/write transactions
 class axi4_lite_random_seq extends axi4_lite_base_seq;
     `uvm_object_utils(axi4_lite_random_seq)
 
-    int unsigned num_transactions = 20;
+    int unsigned num_transactions =200;
 
     function new(string name = "axi4_lite_random_seq");
         super.new(name);
@@ -66,9 +66,15 @@ class axi4_lite_wr_rd_seq extends axi4_lite_base_seq;
 
         repeat (num_pairs) begin
 
-            `uvm_do_with(req, {
-                trans_type == WRITE;
-            })
+            // ── Write transaction ──────────────────────────────────────────
+            // uvm_do_with with multi-line constraints is not resolved by the
+            // preprocessor under Verilator; using start_item/finish_item instead.
+            req = axi4_lite_transaction::type_id::create("req");
+            start_item(req);
+            if (!req.randomize() with { trans_type == WRITE; })
+                `uvm_fatal(get_type_name(), "Randomization failed for write transaction")
+            finish_item(req);
+
             wr_addr = req.addr;
             wr_data = req.wdata;
             wr_strb = req.wstrb;
@@ -77,10 +83,12 @@ class axi4_lite_wr_rd_seq extends axi4_lite_base_seq;
                       $sformatf("  WR: %s", req.convert2string()),
                       UVM_HIGH)
 
-            `uvm_do_with(req, {
-                trans_type == READ;
-                addr       == wr_addr;   // same address as the write
-            })
+            // ── Read transaction (same address) ────────────────────────────
+            req = axi4_lite_transaction::type_id::create("req");
+            start_item(req);
+            if (!req.randomize() with { trans_type == READ; addr == wr_addr; })
+                `uvm_fatal(get_type_name(), "Randomization failed for read transaction")
+            finish_item(req);
 
             `uvm_info(get_type_name(),
                       $sformatf("  RD: %s", req.convert2string()),

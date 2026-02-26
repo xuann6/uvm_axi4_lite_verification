@@ -93,11 +93,11 @@ class axi4_lite_scoreboard extends uvm_scoreboard;
             "╔══════════════════════════════════════════╗\n",
             "║       AXI4-Lite Scoreboard Summary       ║\n",
             "╠══════════════════════════════════════════╣\n",
-            $sformatf("║  Writes           : %6d                ║\n", write_count),
-            $sformatf("║  Reads            : %6d                ║\n", read_count),
-            $sformatf("║  SLVERR writes    : %6d                ║\n", slverr_write_count),
-            $sformatf("║  SLVERR reads     : %6d                ║\n", slverr_read_count),
-            $sformatf("║  Errors           : %6d                ║\n", error_count),
+            $sformatf("║  Writes           : %6d               ║\n", write_count),
+            $sformatf("║  Reads            : %6d               ║\n", read_count),
+            $sformatf("║  SLVERR writes    : %6d               ║\n", slverr_write_count),
+            $sformatf("║  SLVERR reads     : %6d               ║\n", slverr_read_count),
+            $sformatf("║  Errors           : %6d               ║\n", error_count),
             "╠══════════════════════════════════════════╣\n"
         };
 

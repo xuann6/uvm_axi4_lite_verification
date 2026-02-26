@@ -28,6 +28,19 @@ class axi4_lite_monitor extends uvm_monitor;
         join
     endtask
 
+    // -------------------------------------------------------------------------
+    // monitor_write / monitor_read both use @(posedge vif.clk) for time
+    // advancement — NOT @(vif.monitor_cb).  Verilator's clocking-block event
+    // fires immediately when called from within a clocking-block callback
+    // (same-edge re-trigger), which causes one-cycle handshake windows to be
+    // consumed without being observed.  @(posedge vif.clk) does not have this
+    // issue and correctly advances to the NEXT clock edge every time.
+    //
+    // Signal values are still read through vif.monitor_cb.X, which uses
+    // `input #1step` and gives the Preponed (pre-edge) sample — the same
+    // value the DUT's flip-flops use for their input evaluation.
+    // -------------------------------------------------------------------------
+
     task monitor_write();
 
         axi4_lite_transaction tr;
@@ -44,9 +57,9 @@ class axi4_lite_monitor extends uvm_monitor;
             cap_wdata = '0;
             cap_wstrb = '0;
 
-            // Step 1: Capture AW or W handshakes
+            // Step 1: Capture AW and W handshakes (may occur same cycle)
             while (!aw_seen || !w_seen) begin
-                @(vif.monitor_cb);
+                @(posedge vif.clk);
 
                 // AW handshake
                 if (!aw_seen && vif.monitor_cb.awvalid && vif.monitor_cb.awready) begin
@@ -66,7 +79,7 @@ class axi4_lite_monitor extends uvm_monitor;
 
             // Step 2: Wait for write response
             while (!(vif.monitor_cb.bvalid && vif.monitor_cb.bready))
-                @(vif.monitor_cb);
+                @(posedge vif.clk);
 
             // Step 3: Build transaction and broadcast
             tr            = axi4_lite_transaction::type_id::create("wr_tr");
@@ -90,14 +103,14 @@ class axi4_lite_monitor extends uvm_monitor;
 
             // Step 1: AR handshake
             while (!(vif.monitor_cb.arvalid && vif.monitor_cb.arready))
-                @(vif.monitor_cb);
+                @(posedge vif.clk);
 
             cap_addr = vif.monitor_cb.araddr;
             `uvm_info(get_type_name(), $sformatf("MON RD – AR: addr=0x%08h", cap_addr), UVM_HIGH)
 
-             // Step 2: R handshake
+            // Step 2: R handshake
             while (!(vif.monitor_cb.rvalid && vif.monitor_cb.rready))
-                @(vif.monitor_cb);
+                @(posedge vif.clk);
 
             // Step 3: Build transaction and broadcast
             tr            = axi4_lite_transaction::type_id::create("rd_tr");

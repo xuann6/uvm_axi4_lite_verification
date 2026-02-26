@@ -100,7 +100,7 @@ module axi4_lite_tb_top;
     end
 
     initial begin
-        #5000;
+        #20000;
         $display("[TB_TOP] TIMEOUT: simulation exceeded 5000 ns — forcing finish");
         $finish;
     end

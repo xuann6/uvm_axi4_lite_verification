@@ -15,6 +15,9 @@ class axi4_lite_transaction extends uvm_sequence_item;
     rand bit [31:0]   wdata;
     rand bit [3:0]    wstrb;
 
+    // internal knob: 1 = generate an out-of-range address (triggers SLVERR) for coverage tracking
+    rand bit use_oob;
+
     // non-random to capture from DUT 
     bit [31:0] rdata;
     bit [1:0]  resp;
@@ -28,55 +31,56 @@ class axi4_lite_transaction extends uvm_sequence_item;
         addr[1:0] == 2'b00;
     }
 
-    // within 16-register map
-    constraint valid_addr_c {
-        addr inside {[32'h0000_0000 : 32'h0000_003C]};
+    // 10% chance of out-of-range address
+    constraint oob_weight_c {
+        use_oob dist { 1'b0 := 90, 1'b1 := 10 };
     }
 
-    // at least one byte lane must be active when write
+    constraint valid_addr_c {
+        if (use_oob)
+            addr inside {[32'h0000_0040 : 32'h0000_00FC]};
+        else
+            addr inside {[32'h0000_0000 : 32'h0000_003C]};
+    }
+
+    // at least one byte lane must be active on writes
     constraint valid_strb_c {
         wstrb != 4'b0000;
-    }
-
-    // half-word strobes must match the half-word offset
-    constraint strb_alignment_c {
-        (wstrb == 4'b0011) -> (addr[1] == 1'b0);
-        (wstrb == 4'b1100) -> (addr[1] == 1'b1);
     }
 
     function new(string name = "axi4_lite_transaction");
         super.new(name);
     endfunction
 
-    function void do_copy(uvm_object tx);    
-        axi4_lite_transaction tx_t;
+    function void do_copy(uvm_object rhs);
+        axi4_lite_transaction rhs_t;
         super.do_copy(rhs);
-        
-        if (!$cast(tx_t, tx))
-            `uvm_fatal("do_copy", "Cast failed – tx is not axi4_lite_transaction")
-        
-        trans_type = tx_t.trans_type;
-        addr       = tx_t.addr;
-        wdata      = tx_t.wdata;
-        wstrb      = tx_t.wstrb;
-        rdata      = tx_t.rdata;
-        resp       = tx_t.resp;
+
+        if (!$cast(rhs_t, rhs))
+            `uvm_fatal("do_copy", "Cast failed – rhs is not axi4_lite_transaction")
+
+        trans_type = rhs_t.trans_type;
+        addr       = rhs_t.addr;
+        wdata      = rhs_t.wdata;
+        wstrb      = rhs_t.wstrb;
+        rdata      = rhs_t.rdata;
+        resp       = rhs_t.resp;
     endfunction
 
-    function bit do_compare(uvm_object tx, uvm_comparer comparer);   
-        axi4_lite_transaction tx_t;
+    function bit do_compare(uvm_object rhs, uvm_comparer comparer);
+        axi4_lite_transaction rhs_t;
         bit result;
         result = super.do_compare(rhs, comparer);
-        
-        if (!$cast(tx_t, tx))
-            `uvm_fatal("do_compare", "Cast failed – tx is not axi4_lite_transaction")
-        
-        result &= comparer.compare_field_int("trans_type", trans_type, tx_t.trans_type,  1);
-        result &= comparer.compare_field_int("addr",       addr,       tx_t.addr,       32);
-        result &= comparer.compare_field_int("wdata",      wdata,      tx_t.wdata,      32);
-        result &= comparer.compare_field_int("wstrb",      wstrb,      tx_t.wstrb,       4);
-        result &= comparer.compare_field_int("rdata",      rdata,      tx_t.rdata,      32);
-        result &= comparer.compare_field_int("resp",       resp,       tx_t.resp,        2);
+
+        if (!$cast(rhs_t, rhs))
+            `uvm_fatal("do_compare", "Cast failed – rhs is not axi4_lite_transaction")
+
+        result &= comparer.compare_field_int("trans_type", trans_type, rhs_t.trans_type,  1);
+        result &= comparer.compare_field_int("addr",       addr,       rhs_t.addr,       32);
+        result &= comparer.compare_field_int("wdata",      wdata,      rhs_t.wdata,      32);
+        result &= comparer.compare_field_int("wstrb",      wstrb,      rhs_t.wstrb,       4);
+        result &= comparer.compare_field_int("rdata",      rdata,      rhs_t.rdata,      32);
+        result &= comparer.compare_field_int("resp",       resp,       rhs_t.resp,        2);
         return result;
     endfunction
 

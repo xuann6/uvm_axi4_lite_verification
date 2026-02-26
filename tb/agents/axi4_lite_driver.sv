@@ -1,17 +1,24 @@
 
 //  Write protocol (drive_write)
 //  ----------------------------
+//   Use @(posedge vif.clk) — NOT @(vif.master_cb) — for time advancement.
+//   Reason: @(vif.master_cb) called from within a @(posedge vif.clk) callback
+//   re-triggers at the SAME clock edge (Verilator implementation detail), causing
+//   awvalid<=1 and awvalid<=0 to race at the same 1-ns output skew slot.
+//
+//   Outputs are driven directly on vif (NBA at posedge, DUT sees them at next edge).
+//   Inputs are read via vif.master_cb.X (clocking-block #1step Preponed sample).
+//
 //   Cycle 0  : assert awvalid+awaddr and wvalid+wdata+wstrb simultaneously.
-//   Cycle N  : both awready and wready seen → deassert awvalid & wvalid.
-//   Cycle N+1: assert bready; wait for bvalid.
-//   Cycle N+2: deassert bready; capture bresp into tr.resp.
+//   Cycle 1  : both awready and wready seen → deassert awvalid & wvalid.
+//   Cycle 2  : assert bready; wait for bvalid.
+//   Cycle 3  : deassert bready; capture bresp into tr.resp.
 //
 //  Read protocol (drive_read)
 //  --------------------------
 //   Cycle 0  : assert arvalid + araddr.
-//   Cycle N  : arready seen → deassert arvalid.
-//   Cycle N+1: assert rready; wait for rvalid.
-//   Cycle N+2: capture rdata + rresp; deassert rready.
+//   Cycle 1  : arready seen → deassert arvalid + assert rready simultaneously.
+//   Cycle 2  : rvalid seen → capture rdata + rresp; deassert rready.
 // =============================================================================
 
 class axi4_lite_driver extends uvm_driver #(axi4_lite_transaction);
@@ -25,7 +32,7 @@ class axi4_lite_driver extends uvm_driver #(axi4_lite_transaction);
 
     function void build_phase(uvm_phase phase);
         super.build_phase(phase);
-        
+
         if (!uvm_config_db #(virtual axi4_lite_if)::get(this, "", "vif", vif))
             `uvm_fatal("CFG_DB", "Virtual interface 'vif' not found in uvm_config_db")
     endfunction
@@ -69,75 +76,97 @@ class axi4_lite_driver extends uvm_driver #(axi4_lite_transaction);
         end
     endtask
 
+    // -------------------------------------------------------------------------
+    // AXI4-Lite Write Transaction
+    // -------------------------------------------------------------------------
     task drive_write(axi4_lite_transaction tr);
-        
-        @(vif.master_cb);
-        
-        // ── Step 1: Send
-        vif.master_cb.awaddr  <= tr.addr;
-        vif.master_cb.awvalid <= 1'b1;
-        vif.master_cb.wdata   <= tr.wdata;
-        vif.master_cb.wstrb   <= tr.wstrb;
-        vif.master_cb.wvalid  <= 1'b1;
 
-        // ── Step 2: Wait
+        // Advance to a clean clock edge before driving.
+        // Using @(posedge vif.clk) — not @(vif.master_cb) — avoids Verilator's
+        // immediate re-trigger when the clocking-block event coincides with the
+        // current @(posedge vif.clk) context from wait_for_reset / item_done.
+        @(posedge vif.clk);
+
+        // ── Step 1: Assert address + data channels
+        vif.awaddr  <= tr.addr;
+        vif.awvalid <= 1'b1;
+        vif.wdata   <= tr.wdata;
+        vif.wstrb   <= tr.wstrb;
+        vif.wvalid  <= 1'b1;
+
+        // ── Step 2: Wait for AW and W handshakes
+        // Inputs are read via the clocking-block which samples them in the
+        // Preponed region (before the posedge NBA updates aw_done/w_done),
+        // giving the correct pre-handshake value of awready/wready.
         begin
-            bit aw_done = 0; // wait for both to be completed
+            bit aw_done = 0;
             bit w_done  = 0;
 
             while (!aw_done || !w_done) begin
-                // check handshakes and de-assert accordingly
+                @(posedge vif.clk);
                 if (!aw_done && vif.master_cb.awready) begin
-                    vif.master_cb.awvalid <= 1'b0;
+                    vif.awvalid <= 1'b0;
                     aw_done = 1;
                 end
                 if (!w_done && vif.master_cb.wready) begin
-                    vif.master_cb.wvalid <= 1'b0;
+                    vif.wvalid <= 1'b0;
                     w_done = 1;
                 end
             end
         end
 
-        // ── Step 3: Response
-        @(vif.master_cb);
-        vif.master_cb.bready <= 1'b1;
+        // ── Step 3: Assert bready, wait for bvalid
+        @(posedge vif.clk);
+        vif.bready <= 1'b1;
 
         while (!vif.master_cb.bvalid)
-            @(vif.master_cb);
+            @(posedge vif.clk);
 
-        tr.resp = vif.master_cb.bresp; // response status from DUT
+        tr.resp = vif.master_cb.bresp; // capture response
 
-        @(vif.master_cb);
-        vif.master_cb.bready <= 1'b0; // de-assert bready
+        // ── Step 4: Deassert bready
+        @(posedge vif.clk);
+        vif.bready <= 1'b0;
 
-        `uvm_info(get_type_name(), $sformatf("Write done: addr=0x%08h data=0x%08h strb=4'b%04b resp=2'b%02b", tr.addr, tr.wdata, tr.wstrb, tr.resp), UVM_HIGH)
+        `uvm_info(get_type_name(), $sformatf("Write done: addr=0x%08h data=0x%08h strb=4'b%04b resp=2'b%02b",
+                  tr.addr, tr.wdata, tr.wstrb, tr.resp), UVM_HIGH)
     endtask
 
+    // -------------------------------------------------------------------------
+    // AXI4-Lite Read Transaction
+    // -------------------------------------------------------------------------
     task drive_read(axi4_lite_transaction tr);
-        // ── Step 1: Send
-        vif.master_cb.araddr  <= tr.addr;
-        vif.master_cb.arvalid <= 1'b1;
 
-        // ── Step 2: Wait for handshake, de-assert arvalid
+        // Same reason as drive_write: use @(posedge vif.clk) for clean advance.
+        @(posedge vif.clk);
+
+        // ── Step 1: Assert AR channel
+        vif.araddr  <= tr.addr;
+        vif.arvalid <= 1'b1;
+
+        // ── Step 2: Wait for arready, then deassert arvalid + assert rready
+        // The slave has arready = !rvalid (combinational), usually 1 at idle.
+        // The Preponed sample of arready (via clocking block) reflects
+        // the pre-edge rvalid state, giving the correct handshake value.
         while (!vif.master_cb.arready)
-            @(vif.master_cb);
+            @(posedge vif.clk);
 
-        @(vif.master_cb);
-        vif.master_cb.arvalid <= 1'b0;
+        @(posedge vif.clk);
+        vif.arvalid <= 1'b0;
+        vif.rready  <= 1'b1; // assert rready together with deassert of arvalid
 
-        // ── Step 3: Assert rready, wait for rvalid and capture rdata + rresp
-        vif.master_cb.rready <= 1'b1;
-
+        // ── Step 3: Wait for rvalid
         while (!vif.master_cb.rvalid)
-            @(vif.master_cb);
+            @(posedge vif.clk);
 
         tr.rdata = vif.master_cb.rdata;
         tr.resp  = vif.master_cb.rresp;
 
-        // ── Step 4: De-assert
-        @(vif.master_cb);
-        vif.master_cb.rready <= 1'b0;
+        // ── Step 4: Deassert rready
+        @(posedge vif.clk);
+        vif.rready <= 1'b0;
 
-        `uvm_info(get_type_name(), $sformatf("Read  done: addr=0x%08h rdata=0x%08h resp=2'b%02b", tr.addr, tr.rdata, tr.resp), UVM_HIGH)
+        `uvm_info(get_type_name(), $sformatf("Read  done: addr=0x%08h rdata=0x%08h resp=2'b%02b",
+                  tr.addr, tr.rdata, tr.resp), UVM_HIGH)
     endtask
 endclass

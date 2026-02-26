@@ -1,4 +1,6 @@
 
+typedef class axi4_lite_sequencer; // forward declaration (defined below)
+
 class axi4_lite_agent extends uvm_agent;
     `uvm_component_utils(axi4_lite_agent)
 

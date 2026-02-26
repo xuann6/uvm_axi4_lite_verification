@@ -57,6 +57,7 @@ VFLAGS += -Wno-CASEINCOMPLETE
 VFLAGS += -Wno-LATCH
 VFLAGS += -Wno-INITIALDLY
 VFLAGS += -Wno-MULTIDRIVEN
+VFLAGS += -Wno-TIMESCALEMOD
 
 # -----------------------------------------------------------------------------
 # Source files — strict compilation order:
